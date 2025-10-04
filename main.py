@@ -193,13 +193,13 @@ else:
                     st.warning("No stock to sell — restock first! ⚠️")
                 else:
                     update_quantity(int(row['id']), -1, note="Sold 1")
-                    st.experimental_rerun()
+                    st.rerun()
             if st.button(f"Restock +5 📦 (id:{row['id']})", key=f"restock_{row['id']}"):
                 update_quantity(int(row['id']), 5, note="Restocked +5")
-                st.experimental_rerun()
+                st.rerun()
             if st.button(f"Delete 🗑 (id:{row['id']})", key=f"del_{row['id']}"):
                 delete_item(int(row['id']))
-                st.experimental_rerun()
+                st.rerun()
 
 # Actions / utilities
 st.sidebar.markdown("---")
@@ -215,7 +215,7 @@ with st.sidebar.expander("Playground & utilities 🎛️"):
         for it in demo_items:
             add_item(*it)
         st.success("Demo items added — enjoy! 🎉")
-        st.experimental_rerun()
+        st.rerun()
 
     if st.button("Simulate random sales (10 events) 🎲"):
         live = get_inventory_df()
@@ -228,7 +228,7 @@ with st.sidebar.expander("Playground & utilities 🎛️"):
                 change = -random.randint(1, 3)
                 update_quantity(int(iid), change, note="Simulated sale")
         st.success("Simulation complete — check transactions!")
-        st.experimental_rerun()
+        st.rerun()
 
     if st.button("Clear all data (danger!) 🧨"):
         conn = get_conn()
@@ -238,7 +238,7 @@ with st.sidebar.expander("Playground & utilities 🎛️"):
         conn.commit()
         conn.close()
         st.warning("All data cleared.")
-        st.experimental_rerun()
+        st.rerun()
 
 # Visualizations
 st.subheader("Insights 📊")
@@ -273,21 +273,20 @@ else:
 # Export utilities
 st.sidebar.markdown("---")
 with st.sidebar.expander("Export / Backup 💾"):
-    if st.button("Download inventory CSV"):
-        invb = get_inventory_df()
-        towrite = io.StringIO()
-        invb.to_csv(towrite, index=False)
-        b = towrite.getvalue().encode()
-        st.download_button("Download inventory.csv", data=b, file_name="inventory.csv", mime="text/csv")
+    invb = get_inventory_df()
+    towrite = io.StringIO()
+    invb.to_csv(towrite, index=False)
+    b = towrite.getvalue().encode()
+    st.download_button("Download inventory CSV", data=b, file_name="inventory.csv", mime="text/csv")
 
-    if st.button("Download transactions CSV"):
-        tr = get_transactions_df(1000)
-        towrite = io.StringIO()
-        tr.to_csv(towrite, index=False)
-        b = towrite.getvalue().encode()
-        st.download_button("Download transactions.csv", data=b, file_name="transactions.csv", mime="text/csv")
+    tr = get_transactions_df(1000)
+    towrite = io.StringIO()
+    tr.to_csv(towrite, index=False)
+    b = towrite.getvalue().encode()
+    st.download_button("Download transactions CSV", data=b, file_name="transactions.csv", mime="text/csv")
 
 st.markdown("---")
 st.caption("Built with ❤️ for practicing inventory flows. Want extra features? Ask for barcode scanning, multi-user, or cloud sync!")
 
 # https://divyaraok29.github.io/my-inventory/
+# https://my-inventory.streamlit.app/

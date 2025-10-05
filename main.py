@@ -107,10 +107,31 @@ st.title("🧺 Fun Inventory Manager")
 st.write("Cloud-backed inventory system — add items, sell, restock, and watch charts dance!")
 st.info("For best experience, view in Desktop Mode 🌐")
 
+# Load inventory
+inv = get_inventory_df()
+
 # Sidebar: add item
 with st.sidebar.expander("Quick add an item 🧾", expanded=True):
     na = st.text_input("Item name", key="s_name")
-    ca = st.text_input("Category", value="Misc", key="s_cat")
+
+    # Generate category options dynamically from your inventory
+    categories = sorted(inv['category'].unique().tolist()) if not inv.empty else []
+    
+    # Use selectbox with option to type custom category
+    ca = st.selectbox(
+        "Category (choose or type new)",
+        options=categories + ["Other (Type New Category)"],
+        index=0 if categories else None,
+        key="s_cat_select"
+    )
+
+    # If user chooses "Add new", show a text input field
+    if ca == "Other (Type New Category)":
+        new_ca = st.text_input("Type New Category", key="s_new_cat")
+        if new_ca.strip():
+            ca = new_ca.strip()
+    # ca = st.text_input("Category", value="Misc", key="s_cat")
+
     qt = st.number_input("Quantity", min_value=0, value=5, step=1, key="s_qty")
     pr = st.number_input("Price (per unit)", min_value=0.0, value=9.99, step=0.01, format="%.2f", key="s_price")
     rt = st.number_input("Restock threshold", min_value=0, value=3, step=1, key="s_restock")
@@ -120,9 +141,6 @@ with st.sidebar.expander("Quick add an item 🧾", expanded=True):
         else:
             add_item(na.strip(), ca.strip(), int(qt), float(pr), int(rt))
             st.success(f"Added '{na.strip()}' with {int(qt)} units.")
-
-# Load inventory
-inv = get_inventory_df()
 
 # Filters
 col1, col2, col3 = st.columns([2,1,1])

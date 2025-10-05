@@ -211,3 +211,6 @@ __marimo__/
 
 # DB
 *.db
+
+# Flutter
+my_inventory_app/

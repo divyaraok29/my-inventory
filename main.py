@@ -152,20 +152,20 @@ else:
         st.warning(f"{low_mask.sum()} item(s) low in stock 🔔")
 
     table_cols = st.columns([3,2,1,1,1,1])
-    hdr = ["Name","Category","Qty","Buy", "Used", "Delete"]
+    hdr = ["Name","Category","Buy","Qty","Used","Delete"]
     for i, h in enumerate(hdr):
         table_cols[i].markdown(f"**{h}**")
 
     for _, row in df.sort_values('name').iterrows():
-        c1,c2,c3,c7,c8,c6 = st.columns([3,2,1,1,1,1])
+        c1,c2,c7,c3,c8,c6 = st.columns([3,2,1,1,1,1])
         c1.write(row['name'])
         c2.write(row['category'])
 
-        c3.write(int(row['qty']))
         with c7:
             if st.button("", icon="➕", key=f"restock_{row['id']}", help="Buy Item"):
                 update_quantity(int(row['id']), 1, note="Bought +1")
                 st.rerun()
+        c3.write(int(row['qty']))
         with c8:
             if st.button("", icon="➖", key=f"sell_{row['id']}", help="Use Item", disabled=bool(row['qty'] <= 0)):
                 if row['qty'] <= 0:

@@ -86,9 +86,26 @@ def get_transactions_df(limit=500):
 # -----------------------------
 # Streamlit UI
 # -----------------------------
+st.markdown("""
+<meta name="viewport" content="width=1024">
+<style>
+    /* Always use desktop-like layout */
+    [data-testid="stAppViewContainer"] {
+        min-width: 1024px !important;
+        zoom: 0.9; /* optional - fit better on small phones */
+    }
+    [data-testid="stHeader"] {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.set_page_config(page_title="Fun Inventory 🧸", layout="wide")
 st.title("🧺 Fun Inventory Manager")
 st.write("Cloud-backed inventory system — add items, sell, restock, and watch charts dance!")
+st.info("For best experience, view in Desktop Mode 🌐")
 
 # Sidebar: add item
 with st.sidebar.expander("Quick add an item 🧾", expanded=True):
@@ -134,36 +151,35 @@ else:
     if low_mask.any():
         st.warning(f"{low_mask.sum()} item(s) low in stock 🔔")
 
-    table_cols = st.columns([3,1,1,1,1,2])
-    hdr = ["Name","Category","Qty","Price","Threshold","Actions"]
+    table_cols = st.columns([3,2,1,1,1,1])
+    hdr = ["Name","Category","Qty","Buy", "Used", "Delete"]
     for i, h in enumerate(hdr):
         table_cols[i].markdown(f"**{h}**")
 
     for _, row in df.sort_values('name').iterrows():
-        c1,c2,c3,c4,c5,c6 = st.columns([3,1,1,1,1,2])
+        c1,c2,c3,c7,c8,c6 = st.columns([3,2,1,1,1,1])
         c1.write(row['name'])
         c2.write(row['category'])
-        c3.write(int(row['qty']))
-        c4.write(f"£{row['price']:.2f}")
-        c5.write(int(row['restock_threshold']))
 
+        c3.write(int(row['qty']))
+        with c7:
+            if st.button("", icon="➕", key=f"restock_{row['id']}", help="Buy Item"):
+                update_quantity(int(row['id']), 1, note="Bought +1")
+                st.rerun()
+        with c8:
+            if st.button("", icon="➖", key=f"sell_{row['id']}", help="Use Item", disabled=bool(row['qty'] <= 0)):
+                if row['qty'] <= 0:
+                    st.warning("No stock to use — restock first! ⚠️")
+                else:
+                    update_quantity(int(row['id']), -1, note="Used 1")
+                    st.rerun()
+
+        # c4.write(f"£{row['price']:.2f}")
+        # c5.write(int(row['restock_threshold']))
         with c6:
-            b1,b2,b3 = st.columns(3)
-            with b1:
-                if st.button("Use ➖", key=f"sell_{row['id']}"):
-                    if row['qty'] <= 0:
-                        st.warning("No stock to use — restock first! ⚠️")
-                    else:
-                        update_quantity(int(row['id']), -1, note="Used 1")
-                        st.rerun()
-            with b2:
-                if st.button("Buy ➕", key=f"restock_{row['id']}"):
-                    update_quantity(int(row['id']), 1, note="Bought +1")
-                    st.rerun()
-            with b3:
-                if st.button("Del 🚫", key=f"del_{row['id']}"):
-                    delete_item(int(row['id']))
-                    st.rerun()
+            if st.button("", icon=":material/delete:", key=f"del_{row['id']}", help="Remove Item"):
+                delete_item(int(row['id']))
+                st.rerun()
 
 # Sidebar utilities
 st.sidebar.markdown("---")

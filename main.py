@@ -1,133 +1,96 @@
-# fun_inventory_app.py
+# fun_inventory_supabase.py
 """
-A playful, single-file Streamlit inventory management app.
+Fun Inventory App with Supabase backend.
 Features:
-- SQLite persistence (inventory + transactions)
-- Add / edit / delete items
-- Sell and restock actions
-- Low-stock alerts and restock suggestions
-- Search, filter, and category grouping
-- Export inventory / transactions to CSV
-- Simple "market simulator" to generate random sales for demo
-
-Run: pip install streamlit pandas altair
-Then: streamlit run fun_inventory_app.py
+- Cloud-backed inventory & transactions
+- Automatic table creation
+- Add/edit/delete items
+- Sell/restock actions
+- Low-stock alerts & charts
+- CSV backup/export
+Run:
+pip install streamlit pandas altair supabase
+streamlit run fun_inventory_supabase.py
 """
 
-import sqlite3
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import altair as alt
-
+import io
 from datetime import datetime
 import random
-import io
-
-DB_PATH = "inventory.db"
+from supabase import create_client
 
 # -----------------------------
-# Database helpers
+# Supabase setup
 # -----------------------------
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    return conn
-
-
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            category TEXT DEFAULT 'Misc',
-            qty INTEGER DEFAULT 0,
-            price REAL DEFAULT 0.0,
-            restock_threshold INTEGER DEFAULT 5,
-            created_at TEXT
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER,
-            change INTEGER,
-            note TEXT,
-            timestamp TEXT
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
+# -----------------------------
+# CRUD helpers
+# -----------------------------
 def add_item(name, category, qty, price, restock_threshold):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO items (name, category, qty, price, restock_threshold, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, category, qty, price, restock_threshold, datetime.utcnow().isoformat()),
-    )
-    item_id = cur.lastrowid
-    cur.execute(
-        "INSERT INTO transactions (item_id, change, note, timestamp) VALUES (?, ?, ?, ?)",
-        (item_id, qty, f"Initial stock: {qty}", datetime.utcnow().isoformat()),
-    )
-    conn.commit()
-    conn.close()
-
+    try:
+        res = supabase.table("items").insert({
+            "name": name,
+            "category": category,
+            "qty": qty,
+            "price": price,
+            "restock_threshold": restock_threshold
+        }).execute()
+        item_id = res.data[0]["id"]
+        supabase.table("transactions").insert({
+            "item_id": item_id,
+            "change": qty,
+            "note": f"Initial stock: {qty}"
+        }).execute()
+    except Exception as e:
+        st.error(f"Failed to add item: {e}")
 
 def update_quantity(item_id, delta, note=""):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE items SET qty = qty + ? WHERE id = ?", (delta, item_id))
-    cur.execute(
-        "INSERT INTO transactions (item_id, change, note, timestamp) VALUES (?, ?, ?, ?)",
-        (item_id, delta, note, datetime.utcnow().isoformat()),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        # Step 1: get current qty
+        res = supabase.table("items").select("qty").eq("id", item_id).single().execute()
+        if res.data:
+            current_qty = res.data["qty"]
+            new_qty = max(current_qty + delta, 0)  # prevent negative qty
 
+            # Step 2: update new qty
+            supabase.table("items").update({"qty": new_qty}).eq("id", item_id).execute()
+
+            # Step 3: add transaction log
+            supabase.table("transactions").insert({
+                "item_id": item_id,
+                "change": delta,
+                "note": note
+            }).execute()
+        else:
+            st.error("Item not found")
+    except Exception as e:
+        st.error(f"Failed to update quantity: {e}")
 
 def delete_item(item_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM items WHERE id = ?", (item_id,))
-    cur.execute("DELETE FROM transactions WHERE item_id = ?", (item_id,))
-    conn.commit()
-    conn.close()
-
+    supabase.table("items").delete().eq("id", item_id).execute()
+    supabase.table("transactions").delete().eq("item_id", item_id).execute()
 
 def get_inventory_df():
-    conn = get_conn()
-    df = pd.read_sql_query("SELECT * FROM items", conn)
-    conn.close()
-    return df
-
+    res = supabase.table("items").select("*").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 def get_transactions_df(limit=500):
-    conn = get_conn()
-    df = pd.read_sql_query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT ?", conn, params=(limit,))
-    conn.close()
-    return df
-
+    res = supabase.table("transactions").select("*").order("timestamp", desc=True).limit(limit).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 # -----------------------------
-# Utility / UI helpers
+# Streamlit UI
 # -----------------------------
-
 st.set_page_config(page_title="Fun Inventory 🧸", layout="wide")
-
-init_db()
-
 st.title("🧺 Fun Inventory Manager")
-st.write("A playful, minimal inventory system — add items, sell, restock, and watch charts dance.")
+st.write("Cloud-backed inventory system — add items, sell, restock, and watch charts dance!")
 
-# Sidebar: quick add
+# Sidebar: add item
 with st.sidebar.expander("Quick add an item 🧾", expanded=True):
     na = st.text_input("Item name", key="s_name")
     ca = st.text_input("Category", value="Misc", key="s_cat")
@@ -144,8 +107,8 @@ with st.sidebar.expander("Quick add an item 🧾", expanded=True):
 # Load inventory
 inv = get_inventory_df()
 
-# Top controls
-col1, col2, col3 = st.columns([2, 1, 1])
+# Filters
+col1, col2, col3 = st.columns([2,1,1])
 with col1:
     q = st.text_input("Search items (name or category)", value="", key="search")
 with col2:
@@ -153,7 +116,6 @@ with col2:
 with col3:
     show_only_low = st.checkbox("Show low-stock only 🔴", value=False)
 
-# Apply filters
 df = inv.copy()
 if q:
     ql = q.lower()
@@ -163,34 +125,30 @@ if cat_filter != "All":
 if show_only_low:
     df = df[df['qty'] <= df['restock_threshold']]
 
-# Main area: inventory table and actions
+# Inventory table
 st.subheader("Inventory")
 if df.empty:
-    st.info("No items yet — add one from the sidebar or try the demo generator below.")
+    st.info("No items yet — add one from the sidebar or generate demo items below.")
 else:
-    # Show low stock badges
     low_mask = df['qty'] <= df['restock_threshold']
     if low_mask.any():
-        low_ct = low_mask.sum()
-        st.warning(f"{low_ct} item(s) low in stock — consider restocking! 🔔")
+        st.warning(f"{low_mask.sum()} item(s) low in stock 🔔")
 
-    # Table with action buttons
-    table_cols = st.columns([3, 1, 1, 1, 1, 2])
-    hdr = ["Name", "Category", "Qty", "Price", "Threshold", "Actions"]
+    table_cols = st.columns([3,1,1,1,1,2])
+    hdr = ["Name","Category","Qty","Price","Threshold","Actions"]
     for i, h in enumerate(hdr):
         table_cols[i].markdown(f"**{h}**")
 
     for _, row in df.sort_values('name').iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 1, 1, 1, 2])
+        c1,c2,c3,c4,c5,c6 = st.columns([3,1,1,1,1,2])
         c1.write(row['name'])
         c2.write(row['category'])
         c3.write(int(row['qty']))
         c4.write(f"£{row['price']:.2f}")
         c5.write(int(row['restock_threshold']))
 
-        # Side-by-side action buttons
         with c6:
-            b1, b2, b3 = st.columns(3)
+            b1,b2,b3 = st.columns(3)
             with b1:
                 if st.button("Use ➖", key=f"sell_{row['id']}"):
                     if row['qty'] <= 0:
@@ -198,31 +156,29 @@ else:
                     else:
                         update_quantity(int(row['id']), -1, note="Used 1")
                         st.rerun()
-
             with b2:
                 if st.button("Buy ➕", key=f"restock_{row['id']}"):
                     update_quantity(int(row['id']), 1, note="Bought +1")
                     st.rerun()
-
             with b3:
                 if st.button("Del 🚫", key=f"del_{row['id']}"):
                     delete_item(int(row['id']))
                     st.rerun()
 
-# Actions / utilities
+# Sidebar utilities
 st.sidebar.markdown("---")
 with st.sidebar.expander("Playground & utilities 🎛️"):
     if st.button("Generate demo items ✨"):
         demo_items = [
-            ("Retro Robot Toy", "Toys", 12, 14.99, 3),
-            ("Eco Notebook", "Stationery", 30, 3.50, 5),
-            ("Coffee Beans 250g", "Food", 8, 6.99, 4),
-            ("Wireless Dongle", "Electronics", 4, 19.99, 2),
-            ("Herbal Tea", "Food", 20, 2.99, 5),
+            ("Retro Robot Toy","Toys",12,14.99,3),
+            ("Eco Notebook","Stationery",30,3.50,5),
+            ("Coffee Beans 250g","Food",8,6.99,4),
+            ("Wireless Dongle","Electronics",4,19.99,2),
+            ("Herbal Tea","Food",20,2.99,5),
         ]
         for it in demo_items:
             add_item(*it)
-        st.success("Demo items added — enjoy! 🎉")
+        st.success("Demo items added! 🎉")
         st.rerun()
 
     if st.button("Simulate random sales (10 events) 🎲"):
@@ -233,18 +189,14 @@ with st.sidebar.expander("Playground & utilities 🎛️"):
             choices = live['id'].tolist()
             for _ in range(10):
                 iid = random.choice(choices)
-                change = -random.randint(1, 3)
+                change = -random.randint(1,3)
                 update_quantity(int(iid), change, note="Simulated sale")
-        st.success("Simulation complete — check transactions!")
+        st.success("Simulation complete!")
         st.rerun()
 
-    if st.button("Clear all data (danger!) 🧨"):
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM transactions")
-        cur.execute("DELETE FROM items")
-        conn.commit()
-        conn.close()
+    if st.button("Clear all data 🧨"):
+        supabase.table("transactions").delete().neq("id", 0).execute()
+        supabase.table("items").delete().neq("id", 0).execute()
         st.warning("All data cleared.")
         st.rerun()
 
@@ -265,7 +217,7 @@ if not inv_full.empty:
         st.markdown("**Low-stock items**")
         st.table(low[['name','category','qty','restock_threshold']].head(10))
 else:
-    st.info("No data to show charts yet — add items to see insights.")
+    st.info("No data to show charts yet.")
 
 # Transactions
 st.subheader("Activity log")
@@ -273,28 +225,61 @@ trans = get_transactions_df(200)
 if trans.empty:
     st.write("No transactions yet — they'll appear here when you add, sell, or restock items.")
 else:
-    # Join item names for clarity
     items_map = inv_full.set_index('id')['name'].to_dict() if not inv_full.empty else {}
-    trans['item_name'] = trans['item_id'].apply(lambda x: items_map.get(x, f"(id:{x})"))
-    st.dataframe(trans[['timestamp','item_name','change','note']].rename(columns={'timestamp':'When','item_name':'Item','change':'Change','note':'Note'}))
+    trans['item_name'] = trans['item_id'].apply(lambda x: items_map.get(x,f"(id:{x})"))
+    st.dataframe(trans[['timestamp','item_name','change','note']].rename(
+        columns={'timestamp':'When','item_name':'Item','change':'Change','note':'Note'}))
 
 # Export utilities
 st.sidebar.markdown("---")
 with st.sidebar.expander("Export / Backup 💾"):
     invb = get_inventory_df()
     towrite = io.StringIO()
-    invb.to_csv(towrite, index=False)
+    invb.to_csv(towrite,index=False)
     b = towrite.getvalue().encode()
-    st.download_button("Download inventory CSV", data=b, file_name="inventory.csv", mime="text/csv")
+    st.download_button("Download inventory CSV",data=b,file_name="inventory.csv",mime="text/csv")
 
     tr = get_transactions_df(1000)
     towrite = io.StringIO()
-    tr.to_csv(towrite, index=False)
+    tr.to_csv(towrite,index=False)
     b = towrite.getvalue().encode()
-    st.download_button("Download transactions CSV", data=b, file_name="transactions.csv", mime="text/csv")
+    st.download_button("Download transactions CSV",data=b,file_name="transactions.csv",mime="text/csv")
+
+# Sidebar: Import inventory CSV
+st.sidebar.markdown("---")
+with st.sidebar.expander("Import inventory CSV 📥"):
+    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+    if uploaded_file is not None:
+        try:
+            df_import = pd.read_csv(uploaded_file)
+            st.write("Preview of uploaded file:")
+            st.dataframe(df_import.head())
+
+            if st.button("Import CSV into inventory"):
+                for _, row in df_import.iterrows():
+                    name = row.get("name")
+                    category = row.get("category", "Misc")
+                    qty = int(row.get("qty", 0))
+                    price = float(row.get("price", 0.0))
+                    restock_threshold = int(row.get("restock_threshold", 3))
+
+                    # Check if item already exists
+                    existing = supabase.table("items").select("id, qty").eq("name", name).maybe_single().execute()
+                    if existing and existing.data:
+                        # Update existing qty
+                        item_id = existing.data["id"]
+                        update_quantity(item_id, qty, note="Imported from CSV")
+                    else:
+                        # Add new item
+                        add_item(name, category, qty, price, restock_threshold)
+
+                st.success("CSV imported successfully!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Failed to import CSV: {e}")
 
 st.markdown("---")
-st.caption("Built with ❤️ for practicing inventory flows. Want extra features? Ask for barcode scanning, multi-user, or cloud sync!")
+st.caption("Built with ❤️ using Supabase for cloud sync — works across laptop and mobile!")
 
 # https://divyaraok29.github.io/my-inventory/
 # https://my-inventory.streamlit.app/

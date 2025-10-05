@@ -18,6 +18,7 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 import altair as alt
+
 from datetime import datetime
 import random
 import io
@@ -129,7 +130,7 @@ st.write("A playful, minimal inventory system — add items, sell, restock, and 
 # Sidebar: quick add
 with st.sidebar.expander("Quick add an item 🧾", expanded=True):
     na = st.text_input("Item name", key="s_name")
-    ca = st.text_input("Category", value="General", key="s_cat")
+    ca = st.text_input("Category", value="Misc", key="s_cat")
     qt = st.number_input("Quantity", min_value=0, value=5, step=1, key="s_qty")
     pr = st.number_input("Price (per unit)", min_value=0.0, value=9.99, step=0.01, format="%.2f", key="s_price")
     rt = st.number_input("Restock threshold", min_value=0, value=3, step=1, key="s_restock")
@@ -187,19 +188,26 @@ else:
         c4.write(f"£{row['price']:.2f}")
         c5.write(int(row['restock_threshold']))
 
+        # Side-by-side action buttons
         with c6:
-            if st.button(f"Sell 1 🛒 (id:{row['id']})", key=f"sell_{row['id']}"):
-                if row['qty'] <= 0:
-                    st.warning("No stock to sell — restock first! ⚠️")
-                else:
-                    update_quantity(int(row['id']), -1, note="Sold 1")
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if st.button("Use ➖", key=f"sell_{row['id']}"):
+                    if row['qty'] <= 0:
+                        st.warning("No stock to use — restock first! ⚠️")
+                    else:
+                        update_quantity(int(row['id']), -1, note="Used 1")
+                        st.rerun()
+
+            with b2:
+                if st.button("Buy ➕", key=f"restock_{row['id']}"):
+                    update_quantity(int(row['id']), 1, note="Bought +1")
                     st.rerun()
-            if st.button(f"Restock +5 📦 (id:{row['id']})", key=f"restock_{row['id']}"):
-                update_quantity(int(row['id']), 5, note="Restocked +5")
-                st.rerun()
-            if st.button(f"Delete 🗑 (id:{row['id']})", key=f"del_{row['id']}"):
-                delete_item(int(row['id']))
-                st.rerun()
+
+            with b3:
+                if st.button("Del 🚫", key=f"del_{row['id']}"):
+                    delete_item(int(row['id']))
+                    st.rerun()
 
 # Actions / utilities
 st.sidebar.markdown("---")
@@ -290,3 +298,4 @@ st.caption("Built with ❤️ for practicing inventory flows. Want extra feature
 
 # https://divyaraok29.github.io/my-inventory/
 # https://my-inventory.streamlit.app/
+# streamlit run main.py

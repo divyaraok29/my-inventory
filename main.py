@@ -132,9 +132,9 @@ with st.sidebar.expander("Quick add an item 🧾", expanded=True):
             ca = new_ca.strip()
     # ca = st.text_input("Category", value="Misc", key="s_cat")
 
-    qt = st.number_input("Quantity", min_value=0, value=5, step=1, key="s_qty")
-    pr = st.number_input("Price (per unit)", min_value=0.0, value=9.99, step=0.01, format="%.2f", key="s_price")
-    rt = st.number_input("Restock threshold", min_value=0, value=3, step=1, key="s_restock")
+    qt = st.number_input("Quantity", min_value=0, value=1, step=1, key="s_qty")
+    pr = st.number_input("Price (per unit)", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="s_price")
+    rt = st.number_input("Restock threshold", min_value=0, value=1, step=1, key="s_restock")
     if st.button("Add item ✨", key="s_add"):
         if na.strip() == "":
             st.error("Please provide an item name.")

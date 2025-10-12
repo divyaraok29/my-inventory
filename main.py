@@ -83,6 +83,19 @@ def get_transactions_df(limit=500):
     res = supabase.table("transactions").select("*").order("timestamp", desc=True).limit(limit).execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
+def get_inventory_bytes(df):
+    towrite = io.StringIO()
+    df.to_csv(towrite,index=False)
+    b = towrite.getvalue().encode()
+    return b
+
+def get_transactions_bytes():
+    tr = get_transactions_df(1000)
+    towrite = io.StringIO()
+    tr.to_csv(towrite,index=False)
+    b = towrite.getvalue().encode()
+    return b
+
 # -----------------------------
 # Streamlit UI
 # -----------------------------
@@ -102,10 +115,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.set_page_config(page_title="Fun Inventory 🧸", layout="wide")
-st.title("🧺 Fun Inventory Manager")
+st.set_page_config(page_title="Fun Inventory", layout="wide")
+# st.title("Fun Inventory Manager")
 st.write("Cloud-backed inventory system — add items, sell, restock, and watch charts dance!")
-st.info("For best experience, view in Desktop Mode 🌐")
+st.info("For best experience, view in Desktop Mode")
 
 # Load inventory
 inv = get_inventory_df()
@@ -169,15 +182,17 @@ else:
     if low_mask.any():
         st.warning(f"{low_mask.sum()} item(s) low in stock 🔔")
 
-    table_cols = st.columns([3,2,1,1,1,1])
-    hdr = ["Name","Category","Use","Qty","Buy","Delete"]
+    col_sizes = [3,2,1,1,1,1,1]
+    table_cols = st.columns(col_sizes)
+    hdr = ["Name","Category","Price","Use","Qty","Buy","Delete"]
     for i, h in enumerate(hdr):
         table_cols[i].markdown(f"**{h}**")
 
     for _, row in df.sort_values('name').iterrows():
-        c1,c2,c8,c3,c7,c6 = st.columns([3,2,1,1,1,1])
+        c1,c2,c4,c8,c3,c7,c6 = st.columns(col_sizes)
         c1.write(row['name'])
         c2.write(row['category'])
+        c4.write(f"£{row['price']:.2f}")
 
         with c8:
             if st.button("", icon="➖", key=f"sell_{row['id']}", help="Use Item", disabled=bool(row['qty'] <= 0)):
@@ -193,47 +208,15 @@ else:
             if st.button("", icon="➕", key=f"restock_{row['id']}", help="Buy Item"):
                 update_quantity(int(row['id']), 1, note="Bought +1")
                 st.rerun()
-        # c4.write(f"£{row['price']:.2f}")
         # c5.write(int(row['restock_threshold']))
         with c6:
             if st.button("", icon=":material/delete:", key=f"del_{row['id']}", help="Remove Item"):
                 delete_item(int(row['id']))
                 st.rerun()
 
-# Sidebar utilities
-st.sidebar.markdown("---")
-with st.sidebar.expander("Playground & utilities 🎛️"):
-    if st.button("Generate demo items ✨"):
-        demo_items = [
-            ("Retro Robot Toy","Toys",12,14.99,3),
-            ("Eco Notebook","Stationery",30,3.50,5),
-            ("Coffee Beans 250g","Food",8,6.99,4),
-            ("Wireless Dongle","Electronics",4,19.99,2),
-            ("Herbal Tea","Food",20,2.99,5),
-        ]
-        for it in demo_items:
-            add_item(*it)
-        st.success("Demo items added! 🎉")
-        st.rerun()
-
-    if st.button("Simulate random sales (10 events) 🎲"):
-        live = get_inventory_df()
-        if live.empty:
-            st.warning("No items to simulate — add some first.")
-        else:
-            choices = live['id'].tolist()
-            for _ in range(10):
-                iid = random.choice(choices)
-                change = -random.randint(1,3)
-                update_quantity(int(iid), change, note="Simulated sale")
-        st.success("Simulation complete!")
-        st.rerun()
-
-    if st.button("Clear all data 🧨"):
-        supabase.table("transactions").delete().neq("id", 0).execute()
-        supabase.table("items").delete().neq("id", 0).execute()
-        st.warning("All data cleared.")
-        st.rerun()
+    summary_cols = st.columns(col_sizes)
+    hdr = ["Name","Category","Price","Use","Qty","Buy","Delete"]
+    summary_cols[2].write(f"**£{df['price'].sum():.2f}**")
 
 # Visualizations
 st.subheader("Insights 📊")
@@ -246,44 +229,30 @@ if not inv_full.empty:
     ).properties(height=300, width=700)
     st.altair_chart(chart, use_container_width=True)
 
-    # Top low-stock items
-    low = inv_full[inv_full['qty'] <= inv_full['restock_threshold']].sort_values('qty')
-    if not low.empty:
-        st.markdown("**Low-stock items**")
-        st.table(low[['name','category','qty','restock_threshold']].head(10))
+    # # Top low-stock items
+    # low = inv_full[inv_full['qty'] <= inv_full['restock_threshold']].sort_values('qty')
+    # if not low.empty:
+    #     st.markdown("**Low-stock items**")
+    #     st.table(low[['name','category','qty','restock_threshold']].head(10))
 else:
     st.info("No data to show charts yet.")
 
 # Transactions
-st.subheader("Activity log")
-trans = get_transactions_df(200)
-if trans.empty:
-    st.write("No transactions yet — they'll appear here when you add, sell, or restock items.")
-else:
-    items_map = inv_full.set_index('id')['name'].to_dict() if not inv_full.empty else {}
-    trans['item_name'] = trans['item_id'].apply(lambda x: items_map.get(x,f"(id:{x})"))
-    st.dataframe(trans[['timestamp','item_name','change','note']].rename(
-        columns={'timestamp':'When','item_name':'Item','change':'Change','note':'Note'}))
+# st.subheader("Activity log")
+# trans = get_transactions_df(200)
+# if trans.empty:
+#     st.write("No transactions yet — they'll appear here when you add, sell, or restock items.")
+# else:
+#     items_map = inv_full.set_index('id')['name'].to_dict() if not inv_full.empty else {}
+#     trans['item_name'] = trans['item_id'].apply(lambda x: items_map.get(x,f"(id:{x})"))
+#     st.dataframe(trans[['timestamp','item_name','change','note']].rename(
+#         columns={'timestamp':'When','item_name':'Item','change':'Change','note':'Note'}))
 
 # Export utilities
 st.sidebar.markdown("---")
-with st.sidebar.expander("Export / Backup 💾"):
-    invb = get_inventory_df()
-    towrite = io.StringIO()
-    invb.to_csv(towrite,index=False)
-    b = towrite.getvalue().encode()
-    st.download_button("Download inventory CSV",data=b,file_name="inventory.csv",mime="text/csv")
 
-    tr = get_transactions_df(1000)
-    towrite = io.StringIO()
-    tr.to_csv(towrite,index=False)
-    b = towrite.getvalue().encode()
-    st.download_button("Download transactions CSV",data=b,file_name="transactions.csv",mime="text/csv")
-
-# Sidebar: Import inventory CSV
-st.sidebar.markdown("---")
-with st.sidebar.expander("Import inventory CSV 📥"):
-    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+with st.sidebar.expander("Import / Export / Delete"):
+    uploaded_file = st.file_uploader("Import inventory CSV ", type=["csv"])
     if uploaded_file is not None:
         try:
             df_import = pd.read_csv(uploaded_file)
@@ -312,6 +281,44 @@ with st.sidebar.expander("Import inventory CSV 📥"):
                 st.rerun()
         except Exception as e:
             st.error(f"Failed to import CSV: {e}")
+
+    st.download_button("Download inventory CSV",data=get_inventory_bytes(df),file_name="inventory.csv",mime="text/csv")
+    # st.download_button("Download transactions CSV",data=get_transactions_bytes(),file_name="transactions.csv",mime="text/csv")
+
+    if st.button("Clear all data 🧨"):
+        supabase.table("transactions").delete().neq("id", 0).execute()
+        supabase.table("items").delete().neq("id", 0).execute()
+        st.warning("All data cleared.")
+        st.rerun()
+
+# Sidebar utilities
+st.sidebar.markdown("---")
+with st.sidebar.expander("Simulation Playground 🎛️"):
+    if st.button("Generate demo items ✨"):
+        demo_items = [
+            ("Retro Robot Toy","Toys",12,14.99,3),
+            ("Eco Notebook","Stationery",30,3.50,5),
+            ("Coffee Beans 250g","Food",8,6.99,4),
+            ("Wireless Dongle","Electronics",4,19.99,2),
+            ("Herbal Tea","Food",20,2.99,5),
+        ]
+        for it in demo_items:
+            add_item(*it)
+        st.success("Demo items added! 🎉")
+        st.rerun()
+
+    if st.button("Simulate random sales (10 events) 🎲"):
+        live = get_inventory_df()
+        if live.empty:
+            st.warning("No items to simulate — add some first.")
+        else:
+            choices = live['id'].tolist()
+            for _ in range(10):
+                iid = random.choice(choices)
+                change = -random.randint(1,3)
+                update_quantity(int(iid), change, note="Simulated sale")
+        st.success("Simulation complete!")
+        st.rerun()
 
 st.markdown("---")
 st.caption("Built with ❤️ using Supabase for cloud sync — works across laptop and mobile!")
